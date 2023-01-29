@@ -121,3 +121,20 @@ Login Succeeded!
 podman stop myregistry
 podman rm myregistry
 ```
+NFS server
+
+```
+dnf install nfs-utils
+mkdir /backup
+chmod 777 /backup
+echo "/backup 192.168.129.0/24(rw)" > /etc/exports
+exportfs -r
+firewall-cmd --add-service=nfs --permanent
+firewall-cmd --reload
+getent passwd | grep nobody
+getent group | grep no*
+chown -R nobody:nobody /backup
+systemctl restart nfs-server.service
+
+```
+
