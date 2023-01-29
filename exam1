@@ -1,0 +1,408 @@
+Pré setup
+
+```
+hostnamectl set-hostname srv1.exemple.com
+subscription-manager register
+dnf makecache
+ssh-keygen
+ssh-copy-id root@192.168.129.xxx ( outros hosts)
+
+
+Assume that you forget the root password. Reset the root password for rhcsa.prac.four. Change it to “countersign” to gain access to the system.
+```
+RHEL 8.x
+reboot
+e
+rd.break
+ctrl+x
+mount -o remount,rw /sysroot
+chroot /sysroot
+passwd
+touch /.autorelabel
+ctrl+d
+login com senha nova
+```
+
+Set up yum repository for locally-mounted RHEL 8 DVD. Mount the RHEL 8 DVD to the /mnt/repo/ directory.
+
+```
+no host scp rhel-8.6-x86_64-dvd.iso root@192.168.129.115:/root
+mkdir /mnt/repo
+mount -o loop rhel-8.6-x86_64-dvd.iso /mnt/repo/
+cp /mnt/repo/media.repo /etc/yum.repos.d/rhel8dvd.repo
+chmod 640 /etc/yum.repos.d/rhel8dvd.repo
+vi /etc/yum.repos.d/rhel8dvd.repo
+[DVD]
+name=Baseos
+enabled=0
+baseurl=file:///mnt/repo/BaseOS/
+mediaid=None
+metadata_expire=-1
+gpgcheck=0
+cost=500
+
+[DVD2]
+name=AppStream
+enabled=0
+baseurl=file:///mnt/repo/AppStream/
+mediaid=None
+metadata_expire=-1
+gpgcheck=0
+cost=500
+
+vi /etc/fstab
+/root/rhel-8.6-x86_64-dvd.iso /mnt/repo	auto loop 0 0
+
+dnf clean all
+dnf config-manager set-disable rhel-8-for-x86_64-appstream-rpms
+dnf config-manager --set-disable rhel-8-for-x86_64-baseos-rpms
+```
+
+Modify your active network interface configuration to follow the following specifications statically:
+
+IPV4 – 192.168.1.5/24
+GW – 192.168.1.1
+DNS – 8.8.8.8
+```
+nmcli connection modify enp0s3 ipv4.addresses 192.168.129.113/24 ipv4.gateway 192.168.129.1 ipv4.dns 192.168.129.244
+nmcli connection mod enp0s3 ipv4.method manual
+nmcli connection up enp0s3
+nmcli con show enp0s3
+nmcli device status
+```
+Add the following secondary IPV4 address statically to your current running interface. Do this in a way that doesn’t compromise your existing settings:
+IPV4 – 10.0.0.5/24
+
+```
+nmcli connection modify enp0s3 +ipv4.addresses 10.0.0.5/24
+nmcli connection reload
+
+```
+Add the following secondary IPV6 address statically to your current running interface. Do this in a way that doesn’t compromise your existing settings:
+IPV6 – fd01::105/64
+```
+nmcli connection modify enp0s3 +ipv6.addresses fd01::105/64
+nmcli connection reload
+```
+Enable IPV4 packet forwarding on rhcsa.prac.four. This should persist after a reboot.
+```
+sysctl net.ipv4.ip_forward  --> 0?
+echo "net.ipv4.ip_forward = 1" >> /etc/sysctl.conf
+sysctl -p
+```
+Enable IPV6 packet forwarding on rhcsa.prac.four. This should persist after a reboot.
+```
+sysctl net.ipv6.conf.all.forwarding
+echo "net.ipv6.conf.all.forwarding = 1" >> /etc/sysctl.conf
+sysctl -p
+
+```
+Set the system time to your nearest time zone.
+
+```
+timedatectl list-timezones | grep America_S
+timedatectl set-timezone America/Sao_Paulo
+
+```
+Ensure NTP sync is configured.
+```
+systemctl status chrony
+systemctl enable chronyd --now
+chronyc makestep
+timedatectl set-ntp true
+timedatectl
+```
+Server rhcsa.prac.four should boot into the graphical.target by default. (vai usando o tab nessa porra)
+```
+systemctl get-default
+systemctl set-default multi-user.target
+```
+Create a user john with UID 1250 and expiry date 2023-12-21.
+```
+useradd jhon -u 1250 -e 2023-12-21
+id jhon 
+chage -l jhon
+```
+Create a file /var/test, then do the following:
+
+a. Configure the permissions of /var/test so that it is owned by the user oliver, belongs to the group admins, and should not be executable by anyone. The user oliver is a member of the group admins as a supplementary group.
+b. The user jack can read & write /var/test
+c. The user jacob can neither write nor read /var/test
+d. All other users (current or future) can read /var/test
+
+-----------------------------------------------------------
+TABELA PARA INTERPRETAR - PRA QUEM? QUE GRUPO? ONDE? DEFAULT?
+
+users :
+jhon 
+oliver chown admins:oliver rw-
+jack rw-
+jacob --x
+
+groups:
+admin oliver - useradd -G admins oliver
+
+
+file:
+/var/test
+
+default
+ d:::o:r-
+ 
+ 
+```
+touch /var/test
+  107  groupadd admins
+  108  useradd -G admins oliver
+  109  chown oliver:admins /var/test
+  110  chmod a+rw /var/test 
+  111  useradd jack
+  112  setfacl -m u:jack:rw /var/test 
+  113  useradd jacob
+  114  setfacl -m u:jacob:x /var/test
+  115  getfacl /var/test 
+  116  setfacl -m d:o:r /var/test
+  117  setfacl -m o::r /var/test
+  118  getfacl /var/test 
+
+```
+On /dev/sdb create a 2GiB volume group named “vg1”.
+Create a 1G logical volume named “lv1” inside the “vg1” volume group.
+The “lv1” logical volume should be formatted with the ext4 filesystem and mounted persistently on the /lv1 directory.
+
+```
+lsblk
+fdisk -c /dev/sdb
+p
+n
+e
+enter / 
++2G
+t
+8e
+p
+w
+-----------
+pvcreate /dev/sdb1
+pvs
+vgcreate vg1 /dev/sdb1
+vgs
+lvcreate -n lv1 -L 1G vg1
+lvs 
+partprobe
+fdisk -l
+mkfs.ext4 /dev/mapper/vg1-lv1
+blkid
+mkdir /lv1
+vi /etc/fstab
+UUID="8cde9d26-d8e5-4ef4-aec5-2f16048edb6c" /lv1 ext4	defaults	0 0
+mount -a
+lsblk
+```
+Extend the ext4 filesystem on “lv1” by 500M.
+```
+lvextend -L +500M /dev/mapper/vg1-lv1
+lvs
+```
+Optimizes the system to run in a virtual machine for the throughput performance-based tuning with disabled higher latency STOP states tuned profile.
+```
+dnf install tuned -y
+tuned-adm list
+tuned-adm profile throughput-performance
+tuned-adm active
+tuned-adm verify
+
+```
+Configure a basic web server that displays “Welcome to the RHCSA Prac. Test No.4!” once connected to it. Ensure the firewall allows the http/https services.
+
+```
+dnf install -y httpd
+echo "Welcome to the RHCSA Prac. Test No.4!" > /var/www/html/index.html
+systemctl status firewalld
+firewall-cmd --add-service=http
+firewall-cmd --reloadtp
+firewall-cmd --reload
+curl localhost
+
+```
+
+Find the files and directories owned by user sam in /home/ and copy them into the /find/sam_files/ directory.
+
+```
+adduser sam
+mkdir cu
+touch cu/popo
+touch cu/popoa
+chown -R sam:sam cu
+mkdir sam_files
+find /root -user sam -exec cp -r {} /find/sam_files \;
+ll /find/sam_files/
+
+```
+Write a script named /sayhello.sh that gives an output “Hello” for the logged-in user.
+
+```
+cd /etc/profile.d/
+:>sayhello.sh
+vi sayhello.sh
+#!/bin/bash
+
+echo "Hello $(whoami)"
+echo $LOGNAME
+
+
+chmod +x sayhello.sh 
+./sayhello.sh
+ su - sam
+ 
+```
+All new users should have a file name “GetReady” in their home folder after account creation.
+
+```
+touch /etc/skel/GetReady
+
+
+```
+All users' passwords should expire after 40 days and be at least 8 characters in length.
+```
+vi /etc/login.defs
+```
+
+As root, schedule a cron Job that prints “Breakfast Time!” on the current shell at 7 am every day.
+
+```
+cat /etc/crontab
+tty
+ crontab -e
+
+ple of job definition:
+# .---------------- minute (0 - 59)
+# |  .------------- hour (0 - 23)
+# |  |  .---------- day of month (1 - 31)
+# |  |  |  .------- month (1 - 12) OR jan,feb,mar,apr ...
+# |  |  |  |  .---- day of week (0 - 6) (Sunday=0 or 7) OR sun,mon,tue,wed,thu,fri,sat
+# |  |  |  |  |
+# *  *  *  *  * user-name  command to be executed
+
+  00 7  *  *  * echo "Breakfast Time!" /dev/pts/0
+
+
+```
+
+Create a tar file “/archive/myarchive.tar” of /etc directory and ‘/root/ anaconda-ks.cfg’ file. Then restore the archived data in the /restored/ directory.
+```
+mkdir archive
+tar -cvf myarchive.tar /etc /root/anaconda-ks.cfg
+mv myarchive.tar /root
+mv myarchive.tar /archive/
+ll /archive/
+mkdir /restored
+tar -xvf /archive/myarchive.tar -C /restored/
+ll /restored/
+
+```
+
+Set up SSH Passwordless root login in rhcsa.prac.one.
+Disable password authentication on rhcsa.prac.four
+```
+vi /etc/ssh/sshd_config 
+systemctl restart sshd
+
+```
+
+Set SELinux to “permissive” mode.
+
+```
+vi /etc/selinux/config
+
+permissive
+```
+Install container-tools.
+Inspect the busybox image using skopeo.
+Use podman to pull the busybox image.
+Add the tag "mybusybox" to the "docker.io/library/busybox:latest" image.
+Run the busybox container using the tagged image "mybusybox" in detached mode with the name busybox.
+Remove the busybox container.
+
+
+```
+ dnf install @container-tools
+ skopeo inspect docker://docker.io/library/busybox
+ podman pull busybox
+podman tag docker.io/library/busybox mybusybox
+ podman images
+podman run -d --name busybox  mybusybox:latest+
+podman stop busybox
+podman rm busybox
+podman rm -af 
+podman ps -aq
+
+```
+Given a file called birthdays containing lines like:
+```
+YYYY-MM-DD Name
+
+2000-05-01 Sam
+
+2002-06-15 Sue
+
+2004-12-29 Sarah
+```
+Which command would you use to output the lines belonging to all people listed whose birthday is in May or June?
+```
+  304  cat << EOF > birth
+YYYY-MM-DD Name
+
+2000-05-01 Sam
+
+2002-06-15 Sue
+
+2004-12-29 Sarah
+EOF
+
+grep '[0-9]*-0[56]-' birth
+
+```
+What output will the following command sequence produce?
+```
+echo '1 2 3 4 5 6' | while read a b c; do
+
+echo result: $c $b $a;
+
+done
+```
+```
+:> sequence.sh
+vi sequence.sh 
+chmod +x sequence.sh 
+./sequence.sh 
+
+result: 3 4 5 6 2 1
+
+```
+
+Which of the following options for the kernel's command line changes the systemd boot target to rescue.target instead of the default target?
+
+```
+reboot
+e
+
+ systemd.unit=rescue.target
+
+```
+Configure journald to persist between reboots.
+
+```
+systemctl list-unit-files --type service
+vi /etc/systemd/journald.conf
+#Storage=auto" to "Storage=persistent
+
+systemctl restart systemd-journald
+
+```
+
+Make the httpd_t domain permissive.
+```
+semanage permissive -a httpd_t
+
+```
