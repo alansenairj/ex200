@@ -62,4 +62,62 @@ systemctl restart httpd
 ```
 ![image](https://user-images.githubusercontent.com/20565821/215324088-42f7e16b-fab4-4dff-9ed2-45708353483e.png)
 
+# Configurar o registry
 
+```
+yum install -y podman httpd-tools
+htpasswd -bBc /opt/registry/auth/htpasswd teste teste
+cat > /etc/containers/registries.conf.d/myregistry.conf <<EOF
+[[registry]] 
+location = "srv1.example.com:5000"
+insecure = true
+EOF
+```
+### regras de f.w. e restart
+```
+firewall-cmd --add-port=5000/tcp --zone=internal --permanent
+firewall-cmd --add-port=5000/tcp --zone=public --permanent
+firewall-cmd --reload
+
+systemctl restart podman
+```
+
+# Rodar o container
+```
+podman run --name myregistry \
+-p 5000:5000 \
+-v /opt/registry/data:/var/lib/registry:z \
+-v /opt/registry/auth:/auth:z \
+-e "REGISTRY_AUTH=htpasswd" \
+-e "REGISTRY_AUTH_HTPASSWD_REALM=Registry Realm" \
+-e REGISTRY_AUTH_HTPASSWD_PATH=/auth/htpasswd \
+-d \
+docker.io/library/registry:latest
+```
+## testar - senha teste - pode usar o navegador se preferir
+```
+curl --location --request GET '192.168.129.115:5000/v2/_catalog' \
+--header 'Authorization: Basic teste=' \
+--data-raw ''
+```
+
+#### resposta
+![image](https://user-images.githubusercontent.com/20565821/215327397-29c77220-7afe-4583-8182-3d7659923ba2.png)
+
+```
+{
+    "repositories": []
+}
+```
+# login
+```
+podman login <hostname>:5000
+Enter Username:xxxxxxxx
+Enter Password:yyyyyyyy
+Login Succeeded!
+```
+# Lifecycle - apagar
+```        
+podman stop myregistry
+podman rm myregistry
+```
