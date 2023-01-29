@@ -129,12 +129,38 @@ mkdir /backup
 chmod 777 /backup
 echo "/backup 192.168.129.0/24(rw)" > /etc/exports
 exportfs -r
+
 firewall-cmd --add-service=nfs --permanent
+firewall-cmd --add-service rpc-bind --permanent
+firewall-cmd --add-service mountd --permanent
 firewall-cmd --reload
-getent passwd | grep nobody
-getent group | grep no*
-chown -R nobody:nobody /backup
+
+systemctl enable --now rpcbind
+systemctl restart rpc-statd.service
 systemctl restart nfs-server.service
 
 ```
 
+No client
+```
+ dnf install nfs-utils.x86_64
+ showmount -e 192.168.129.115
+  
+ ```
+# autofs - muito confuso as explicações por aí. Fiz mais simples.
+```
+cp /etc/auto.master /etc/auto.master.first
+vi /etc/auto.master
+#/misc  /etc/auto.misc
+/backup /etc/backup.autofs --timeout=300
+-------------------
+vi /etc/backup.autofs
+backup -fstype-auto 192.168.129.115:/backup
+--------------------
+systemctl restart autofs
+systemctl status autofs
+cd backup/
+cd backup
+ls -larths
+
+```
