@@ -124,6 +124,13 @@ Login Succeeded!
 192.168.129.115 srv1.example.com
 
 ```
+
+# push image para o registry
+```
+podman tag busybox srv1.example.com:5000/busybox
+podman push srv1.example.com:5000/busybox
+```
+
 # Lifecycle - apagar
 ```        
 podman stop myregistry
