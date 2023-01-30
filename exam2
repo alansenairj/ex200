@@ -1,0 +1,478 @@
+
+1 -Set up a Local DNF repository using RHEL8.iso image mounted on the /mnt/disc/ directory.
+# server
+ssh-keygen
+ssh-copy-id root@192.168.129.113
+scp rhel-8.6-x86_64-dvd.iso root@192.168.129.113:/root
+# client
+mkdir -p /mnt/media
+dnf repolist
+dnf config-manager --set-disabled rhel-8-for-x86_64-appstream-rpms rhel-8-for-x86_64-baseos-rpms
+mount -o loop rhel-8.6-x86_64-dvd.iso /mnt/media/
+cp media.repo /etc/yum.repos.d/dvd.repo
+[BaseOs]
+name=Red Hat Enterprise Linux 8.6.0 baseos
+baseurl=file:///mnt/media/BaseOs
+mediaid=None
+metadata_expire=-1
+gpgcheck=0
+cost=500
+
+[AppStream]
+name=Red Hat Enterprise Linux 8.6.0 appstream
+baseurl=file:///mnt/media/AppStream
+mediaid=None
+metadata_expire=-1
+gpgcheck=0
+cost=500
+
+ dnf config-manager --set-enabled rhel-8-for-x86_64-appstream-rpms rhel-8-for-x86_64-baseos-rpms
+ 
+ 
+ 
+2  Modify your active network interface configuration to follow the following specifications statically:
+IPV4 – 192.168.129.113/24
+GW – 192.168.129.1
+DNS – 8.8.8.8
+ 
+  nmcli connection modify enp0s3 ipv4.addresses 192.168.129.113/24 ipv4.dns 8.8.8.8 ipv4.gateway 192.168.129.1
+ mcli con mod enp0s3 ipv4.method manual 
+nmcli connection up enp0s3
+nmcli con show enp0s3
+
+
+3  Add the following secondary IPV4 address statically to your current running interface. Do this in a way that doesn’t compromise your existing settings:
+IPV4 – 10.0.0.6/24
+
+nmcli con modify enp0s3 +ipv4.addresses 10.0.0.6/24
+nmcli connection up enp0s3
+nmcli con show enp0s3 
+
+ipv4.addresses:                         192.168.129.113/24, 10.0.0.6/24
+ipv4.gateway:                           192.168.129.1
+ipv4.routes:                            --
+
+
+4 Add the following secondary IPV6 address statically to your current running interface. Do this in a way that doesn’t compromise your existing settings:
+
+IPV6 – fd01::106/64
+
+
+nmcli con mod enp0s3 +ipv6.addresses fd01::106/64
+ nmcli con mod enp0s3 ipv6.method manual
+ nmcli con up enp0s3 
+nmcli con show enp0s3 
+ 
+ 
+ipv6.dns-priority:                      0
+ipv6.addresses:                         fd01::106/64
+
+5 Enable IPV4 packet forwarding on rhcsa.prac.five. This should persist after a reboot.
+ 
+sysctl -a
+ net.ipv4.ip_forward = 0
+ [root@srv2 media]# echo "net.ipv4.ip_forward = 1" >> /etc/sysctl.conf 
+[root@srv2 media]# sysctl -p
+net.ipv4.ip_forward = 1
+
+
+6 Enable IPV6 packet forwarding on rhcsa.prac.five. This should persist after a reboot.
+
+sysctl -a | grep  forward
+[root@srv2 media]# echo "net.ipv6.conf.all.forwarding = 1" >> /etc/sysctl.conf 
+[root@srv2 media]# sysctl -p
+net.ipv4.ip_forward = 1
+net.ipv6.conf.all.forwarding = 1
+
+
+7 Set the system time to the “America/Los_Angeles” timezone.
+timedatectl list-timezones |grep America/Los
+timedatectl set-timezone America/Los_Angeles
+
+
+8 Ensure NTP sync is configured.
+
+timedatectl set-ntp true
+
+
+9 Install the appropriate kernel update. The following criteria must also be met:
+
+a. The updated kernel is the default kernel when the system is rebooted.
+
+b. The original kernel remains available and bootable on the system.
+
+ dnf update kernel
+ 
+ 
+10 Server rhcsa.prac.five should boot into the multi-user.target by default.
+ 
+  systemctl set-default multi-user.target
+  
+  
+  
+  
+11  Create a user harry whose UID is 5000, and he doesn't have access to any interactive shell on the system.
+ getent passwd 
+  /sbin/nologin
+   useradd -u 5000 -s /sbin/nologin harry
+
+
+12 Configure the system to run in a virtual machine general non-specialized tuned profile.
+
+tuned-adm profile
+tuned-adm profile balanced
+tuned-adm active
+
+
+13 Configure Apache to serve a basic website that shows the text "Hello Guys!"
+
+   91  dnf install httpd
+   92  systemctl enable httpd -now
+   93  systemctl enable httpd --now
+
+   95  firewall-cmd --add-service=http
+   96  firewall-cmd --reload
+   97  echo "Hello Guys!" > /var/www/html/index.html
+   98  curl localhost
+
+
+14 Find all files that are larger than 5MB in the /etc directory and copy them to /find/5mfiles.
+[root@srv2 media]# mkdir -p  /find/5mfiles
+[root@srv2 media]# sudo find /etc -size +5M -exec cp {} /find/5mfiles \;
+
+
+
+15 Write a shell script “sum.sh” in the root directory that takes an unspecified number of command-line arguments of ints and finds their sum. To add a number to the sum it must be greater than 0.
+
+touch /sum.sh
+
+
+  1 #!/bin/bash
+  2 
+  3 sum=0	  # declara a var soma
+  4 
+  5 for i in "$@"  # chama todos os valores
+  6 do
+  7     if [ $i -gt 0 ]   # greater then
+  8     then
+  9         sum=$(($sum + i))  # somar com $(())
+ 10     fi
+ 11 done
+ 12 echo "The sum is $sum"  # devolve o valor da variável
+ 13 
+
+done
+chmod +x /sum.sh
+root@srv2 ~]# cd /
+[root@srv2 /]# ./sum.sh 123 54 65
+ The sum is: 242
+
+
+16 Create users James, Benjamin, Lucas, and Mason.
+
+- James and Benjamin are members of the Innovation group.
+
+- Lucas and Mason are members of the Solution group.
+
+root@srv2 ~]# vi users
+[root@srv2 ~]# vi groups
+for i in $(cat users.list); do  adduser $i; done
+ for i in $(cat groups.list); do  groupadd $i; done
+ 
+ [root@srv2 ~]# usermod -G Innovation James
+[root@srv2 ~]# usermod -G Innovation Benjamin 
+[root@srv2 ~]# usermod -G Solution Lucas 
+[root@srv2 ~]# usermod -G Solution Mason 
+
+[root@srv2 ~]# getent passwd | tac | head -n 3
+Mason:x:5006:5006::/home/Mason:/bin/bash
+Lucas:x:5005:5005::/home/Lucas:/bin/bash
+Benjamin:x:5004:5004::/home/Benjamin:/bin/bash
+[root@srv2 ~]# getent group | tac | head -n 3
+Solution:x:5008:Lucas,Mason
+Innovation:x:5007:James,Benjamin
+Mason:x:5006:
+
+17 Create shared group directories /groups/Innovation and /groups/ Solution
+
+mkdir -p /groups/{Innovation,Solution}
+[root@srv2 ~]# ll /groups
+total 0
+drwxr-xr-x. 2 root root 6 Jan 30 02:31 Innovation
+drwxr-xr-x. 2 root root 6 Jan 30 02:31 Solution
+
+
+18 Make the Innovation group the owner group of the /groups/Innovation directory, and the Solution group the owner group of the /groups/Solution directory.
+[root@srv2 ~]# chgrp Innovation /groups/Innovation/
+[root@srv2 ~]# chgrp Solution /groups/Solution/
+[root@srv2 ~]# ll /groups
+total 0
+drwxr-xr-x. 2 root Innovation 6 Jan 30 02:31 Innovation
+drwxr-xr-x. 2 root Solution   6 Jan 30 02:31 Solution
+
+
+18 Grant the groups that own the Innovation and Solution directories full access to these directories.
+chmod +g:rwx /groups/Innovation/
+chmod g+rwx /groups/Solution/
+ls -larst /groups
+
+
+20 Others don't have access to the Innovation and Solution directories.
+[root@srv2 ~]# chmod o-rwx /groups/Solution/
+[root@srv2 ~]# chmod o-rwx /groups/Innovation/
+[root@srv2 ~]# ls -lasrt /groups
+total 4
+0 drwxrwx---.  2 root Solution      6 Jan 30 02:31 Solution
+0 drwxrwx---.  2 root Innovation    6 Jan 30 02:31 Innovation
+
+
+
+21 New files created in Innovation and Solution directories belong to the group of which the directory is a member.
+
+# permissão especial s
+chmod g+s /groups/Innovation
+chmod g+s /groups/Solution/
+
+
+22 Members of the Solution group have read and execute permissions on the /groups/Innovation directory and all of its sub-directories and files.
+
+setfacl -dm g:Solution:rx /groups/Innovation/
+
+
+23 On /dev/sdb, create an LVM Partition with 50 extents and 1extent=16MiB.
+
+# vou treinar com redução tbm
+16M - tamanho do grupo do volume
+50 extends = -l - tamanho do volume
+50*16 = 800M +- 1 GB total estimado pra cima a partição
+
+cfdisk /dev/sdb
+lsblk
+pvcreate /dev/sdb7
+vgcreate -s 16M myvg /dev/sdb7
+lvcreate -l 50 -n mylv myvg
+lvdisplay
+
+  LV Size                800.00 MiB
+  Current LE             50
+	
+24 Current LE mostra o número de extents lógicos usados por este LV. Normalmente, um LE é mapeado para uma extensão física no VG e, portanto, ao volume físico.
+
+
+
+
+25 As root, create a cron job that deletes empty files and directories from the /tmp directory at 4:15 pm daily.
+
+cat /etc/crontab
+
+# Example of job definition:
+# .---------------- minute (0 - 59)
+# |  .------------- hour (0 - 23)
+# |  |  .---------- day of month (1 - 31)
+# |  |  |  .------- month (1 - 12) OR jan,feb,mar,apr ...
+# |  |  |  |  .---- day of week (0 - 6) (Sunday=0 or 7) OR sun,mon,tue,wed,thu,fri,sat
+# |  |  |  |  |
+# *  *  *  *  * user-name  command to be executed
+  15 16 *  *  *  find /tmp/ -empty -delete
+
+
+26 Create a “myhome.tgz” file of /home directory in the /Backup/ directory. Exclude the file type of pdf while creating the compressed tar file.
+
+tar -czvf myhome.tgz --exclude=*.pdf /home
+tar: Removing leading `/' from member names
+/home/
+/home/lost+found/
+[root@srv2 ~]# mv myhome.tgz /Backup/
+
+
+27 On /dev/sdb, create a 2G partition, and make it an ext4 file system mounted automatically at boot-start under /mnt/drive.
+
+cfdisk /dev/sdb
+lsblk
+mkfs.ext4 /dev/sdb6
+vi /etc/fstab
+mount -a
+cd /mnt/drive
+
+28 On /dev/sdb, create a new 1G swap partition which takes effect automatically at boot start.
+
+free -h
+
+lvcreate myvg --name swap --size 1G
+lsblk
+mkswap /dev/myvg/swap 
+swapon
+vi /etc/fstab 
+mount -a
+systemctl daemon-reload
+free -h
+
+
+29 Set up SSH Password-less Login for the user john in rhcsa.prac.two.
+(nome desse host no meu lab é srv3)
+no srv3
+
+# se no exame o server do ssh não estiver
+
+systemctl status sshd
+2. # yum install openssh-server
+3. # firewall-cmd --list-all
+4. # firewall-cmd --add-service=ssh --zone=public --permanent
+
+useradd jhon
+getent passwd
+jhon:x:1001:1001::/home/jhon:/bin/bash
+
+no srv2
+useradd -u 1001 jhon
+passwd jhon
+
+no srv3
+ssh-keygen
+ssh-copy-id jhon@192.168.129.113
+
+
+
+30 Disable user SSH password-less connection requests on rhcsa.prac.five.
+
+vi /etc/ssh/sshd.conf
+PermitEmptyPasswords no
+PubkeyAuthentication no
+ systemctl restart sshd
+
+
+31 Change the hostname to rhel.server.com and make it persistent.
+ hostnamectl set-hostname rhel.server.com
+ 
+ 
+ vi /etc/selinux/config
+ Set SELinux to “enforcing” mode.
+ 
+ 
+ SELINUX=enforcing
+reboot
+
+
+32 Install container-tools.
+
+ dnf install @container-tools
+ 
+ 
+33  Use podman to search for the latest release of the Red Hat Universal Base Images “ubi” container.
+ 
+  podman search registry.redhat.io/ubi8/ubi
+NAME                                 DESCRIPTION
+registry.redhat.io/ubi8/ubi          Provides the latest release of the Red Hat U...
+
+
+34 Inspect the ubi image using skopeo.
+skopeo inspect docker://registry.redhat.io/ubi8/ubi
+(tem que logar nessa merda de registry)
+
+skopeo login registry.redhat.io
+podman login registry.redhat.io
+
+Login Succeeded!
+[root@srv2 drive]# skopeo inspect docker://registry.redhat.io/ubi8/ubi
+{
+    "Name": "registry.redhat.io/ubi8/ubi",
+    "Digest": "sha256:323bb3abab06523d595d133fe82c40c13aea0242445c30c9842d34c81c221dea",
+    "RepoTags": [
+
+
+35 Use podman to pull the ubi image.
+
+podman pull registry.redhat.io/ubi8/ubi
+
+
+
+36 Configure persistent storage on “/var/lib/containers/backup_storage” for the ubi container image whose volume is the /mnt directory. Using the ubi container shell create a sample file sample.txt in the “/var/lib/containers/backup_storage” directory. Then stop and remove the ubi container.
+
+mkdir -p /var/lib/containers/backup_storage
+
+
+podman image ls
+podman run --privileged -it -v /var/lib/containers/backup_storage:/mnt:z registry.redhat.io/ubi8/ubi:latest /bin/bash
+echo "The container is working" > /mnt/sample.txt
+cat /var/lib/containers/backup_storage/sample.txt 
+
+
+37 Compress a directory /usr/bin to the format /home/bin.tar.bz2 using the bzip2 command.
+
+tar -cvjf /root/bin.tar.bz2 /usr/bin
+ls -l /root
+
+
+38 Add a new environment variable “VAR” with the value “RHCSA Prac Five” which will be available throughout the system, on both remote login sessions as well as local sessions for all users.
+
+The /etc/environment file is used for system-wide environment variable settings.
+
+ vi /etc/environment
+export VAR=“RHCSA Prac Five”
+
+
+39 Configure permanent storage for journald logs with 100M max use.
+find /etc -name journal*
+vi /etc/systemd/journald.conf
+
+
+[Journal]
+#Storage=auto
+#Compress=yes
+#Seal=yes
+#SplitMode=uid
+#SyncIntervalSec=5m
+#RateLimitIntervalSec=30s
+#RateLimitBurst=10000
+SystemMaxUse=100M
+systemctl list-unit --all 
+
+systemd-journald.service
+
+systemctl restart systemd-journald.service 
+
+
+40 What entry can be added to the syslog.conf file to have all syslog messages generated by a system displayed on console 2?
+*.* /dev/tty2
+
+
+41 Enable persistent logging for the systemd journal.
+vi /etc/systemd/journald.conf
+
+Storage=persistent
+
+systemctl restart systemd-journald
+
+42 Install PostgreSQL 13 on your server as the default version.
+
+dnf module enable postgresql:13
+dnf module list postgresql
+dnf install postgresql
+psql --version
+
+
+43 Install Apache and allow it to get documents from NFS mounted folder. (selinux booleano)
+
+dnf install httpd -y
+
+setsebool -P httpd_use_nfs 1  (usar tab)
+
+
+44 Scan and analyze the audit.log file for SELinux denials and attempts, and save the results to the /audit_log.txt file.
+sealert -a /var/log/audit/audit.log > /audit_log.txt
+cat /audit_log.txt
+
+
+45 Assign the same SELinux contexts used by the home directories to the /backup directory permanently.
+ semanage fcontext -a -t home_root_t "/backup(/.*)?"
+ 
+ 
+ Find all files in the /etc directory that were modified more than 90 days ago.
+ 
+ find /etc -type f -mtime +90
+ 
+ 
+46 Allow Apache (httpd) to listen on tcp port 5569.
+semanage port -l | grep http
+semanage port --add --type http_port_t -p tcp 5569
+
