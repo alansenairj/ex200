@@ -164,3 +164,42 @@ cd backup
 ls -larths
 
 ```
+### múltiplos shares na mesma pasta : direct e indirect -    auto.master ----> /-  /etc/backup.autofs  |    backup.autofs  --->  * -fstype-auto ip:pasta/&
+
+1 - nfs server
+mkdir teste{1,2,3}
+vi /etc/exports
+/backup 192.168.129.0/24(rw)
+/backup/teste1 192.168.129.0/24(rw,sync,no_root_squash)
+/backup/teste2 192.168.129.0/24(rw)
+/backup/teste3 192.168.129.0/24(rw)
+/external 192.168.129.0/24(rw)
+exportfs -avr
+systemctl restart nfs-server
+
+2 - no client
+showmount -e 192.168.129.115
+
+## montar autofs direct | indirect
+
+### share direct
+
+/etc/auto.master.d/ ---> criar direct.autofs
+/-	/etc/auto.direct
+
+echo "/-    /etc/auto.direct " >> /etc/auto.master.d/direct.autofs
+
+/etc/ -----> criar auto.direct
+/external	-rw,sync,fstype=nfs4 192.168.129.115:/external
+
+echo "/external	   -rw,sync,fstype=nfs4 192.168.129.115:/external" > /etc/auto.direct
+
+### share indirect
+
+criar /etc/auto.master.d/indirect.autofs
+echo "/backup  /etc/auto.indirect" > /etc/auto.master.d/indirect.autofs
+
+criar  /etc/auto.indirect
+echo "*  	-rw,sync,fstype=nfs4	192.168.129.115:/backup/&" > /etc/auto.indirect
+
+
