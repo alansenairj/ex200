@@ -71,6 +71,8 @@ cat > /etc/containers/registries.conf.d/myregistry.conf <<EOF
 [[registry]] 
 location = "srv1.example.com:5000"
 insecure = true
+blocked = false
+
 EOF
 ```
 ### regras de f.w. e restart
@@ -111,15 +113,23 @@ curl --location --request GET '192.168.129.115:5000/v2/_catalog' \
 ```
 # login
 ```
-podman login <hostname>:5000
-Enter Username:xxxxxxxx
-Enter Password:yyyyyyyy
+[root@srv2 conf.d]# podman login srv1.example.com:5000
+Username: teste
+Password: 
 Login Succeeded!
+
+### promover entrada no DNS do roteador/pihole
+#### verificar /etc/resolv.conf 
+#### editar /etc/hosts no srv e client  --->
+192.168.129.115 srv1.example.com
+
 ```
 # Lifecycle - apagar
 ```        
 podman stop myregistry
 podman rm myregistry
+podman rm -af
+
 ```
 NFS server
 
