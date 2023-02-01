@@ -1,0 +1,622 @@
+
+## adaptado primeiro fazer pull para o registry local
+podman pull httpd ---> docker.io
+podman pull redis  ---> docker.io
+podman tag httpd srv1.example.com:5000/httpd
+podman push srv1.example.com:5000/httpd
+podman tag redis srv1.example.com:5000/redis
+podman push srv1.example.com:5000/redis
+
+Com a opção Z no final do volume, o Podman aplica automaticamente o tipo de contexto SELinux container_file_t ao diretório do host.
+
+
+
+54 As the user sam, using the "srv1.example.com:5000" registry, create a rootless Apache HTTP web server container in detached mode with tag "httpd-24" and name "httpd".
+- Register credentials: username "teste", and the password "teste".
+- Create "~/www-data/" directory and mount it as persistent storage to the container "/var/www/" directory. Create an "index.html" file containing "Hello World!" in the "~/www-data/" directory.
+- Map the port 8080 on the host to port 8080 on the container. Declare the environment variables, HTTPD_USER and HTTPD_PASSWORD, and use "test" as their values.
+- Use systemd to take control of the httpd container as a service and make sure it persists through reboots.
+
+# criar user sam
+useradd sam
+passwd sam   - teste
+podman login srv1.example.com:5000   | (teste teste)
+
+
+# passos para executar o container como serviço em outra conta e fazer ele inicializar com o sistema
+etapas gerais
+- criar .config no home do user e colocar configurações lá
+- criar estrutura de pastas
+- verificar se o registry é insecure
+- deixar uma imagem pronta
+- gerar o service com podman generate
+- copiar o arquivo para o path systemd/user
+- logar como outro user via ssh
+- habilitar loginctl para iniciar o serviço desse user/container junto com o OS
+
+#### criar estrutura de pastas
+- como root
+mkdir -p ~/.config/containers
+
+#### verificar se o registry é local 
+
+criar um arquivo registries.conf e colocar lá
+cp /etc/containers/registries.conf ~/.config/containers
+
+adicionar nesse arquivo as linhas do seu registry particular
+
+unqualified-search-registries = ["registry.access.redhat.com", "registry.redhat.io", "docker.io", "srv1.example.com"]
+
+[[registry]] 
+location = "srv1.example.com:5000"
+insecure = true
+
+### passos a seguir exemplificam a criação de uso de um simples httpd de exemplo
+
+mkdir -p ~/www-data/
+chmod 777 ~/www-data/
+echo " Hello Wolrd" > ~/www-data/index.html
+
+# criar a tag para da imagem no registry para a imagem local
+
+podman tag httpd srv1.example.com:5000/httpd http-24
+podman image ls
+
+localhost/http-24
+
+# compor o comando
+podman run -d \
+--name httpd \
+-v ~/www-data:/usr/local/apache2/htdocs/:Z \
+-p 8080:80 \
+-e HTTPD_USER=test \
+-e HTTPD_PASSWORD=test \
+localhost/http-24
+
+podman ps
+exit
+firewall-cmd --add-port=8080/tcp --permanent
+
+su - sam
+curl localhost:8080
+ Hello Wolrd
+
+# transformar o container em serviço
+ podman stop httpd
+ mkdir -p ~/.config/systemd/user
+cd ~/.config/systemd/user/
+ podman generate systemd --name httpd --files --new
+ 
+ loginctl enable-linger    -- senha do root
+ loginctl enable-linger sam
+  systemctl daemon-reload  - senha d root
+ export XDG_RUNTIME_DIR=/run/user/$(id -u)
+
+### explicação do export - ou vc cria container rootless como root ou vc direciona o user transient para o path. 
+sam@srv2 systemd]$ pwd
+/run/user/1002/systemd
+[sam@srv2 systemd]$ ll
+total 0
+srwxr-xr-x. 1 sam sam  0 Jan 30 22:16 notify
+srwxr-xr-x. 1 sam sam  0 Jan 30 22:16 private
+drwxr-xr-x. 2 sam sam 60 Jan 31 03:41 transient
+
+Assim essa merda vai funcionar com o viado do user sam. 
+https://access.redhat.com/discussions/6029491
+
+
+ systemctl --user enable container-httpd.service --now
+ 
+ [sam@srv2 user]$ systemctl --user enable container-httpd.service --now
+Created symlink /home/sam/.config/systemd/user/default.target.wants/container-httpd.service → /home/sam/.config/systemd/user/container-httpd.service.
+podman ps
+CONTAINER ID  IMAGE                     COMMAND           CREATED         STATUS             PORTS                 NAMES
+0b0b77e06a5e  localhost/http-24:latest  httpd-foreground  26 seconds ago  Up 27 seconds ago  0.0.0.0:8080->80/tcp  httpd
+
+
+
+1 Assume that you forget the root password. Reset the root password for rhcsa8.prac.one. Change it to “password” to gain access to the system.
+
+reboot na VM
+e
+mount -o remount,rw /sysroot/
+chroot /sysroot
+passwd
+touch /.autorelabel
+ctrl -d 2 vezes
+
+2 Set up a Local Yum/DNF Repository using RHEL-8 ISO image mounted on the /opt directory.
+
+dnf repolist
+dnf config-manager --set-disabled rhel-8-for-x86_64-appstream-rpms rhel-8-for-x86_64-baseos-rpms
+ll  --iso no /root
+mount -o loop rhel-8.6-x86_64-dvd.iso /mnt/media/
+ cp /mnt/media/*.repo /etc/yum.repos.d/
+ cd /etc/yum.repos.d/
+chmod 640 media.repo
+vi /etc/yum.reposd/media.repo
+[BaseOs]
+name=Red Hat Enterprise Linux 8.6.0
+baseurl=file:///mnt/media/BaseOS
+mediaid=None
+metadata_expire=-1
+gpgcheck=0
+cost=500
+
+
+[AppStream]
+name=Red Hat Enterprise Linux 8.6.0
+baseurl=file:///mnt/media/AppStream
+mediaid=None
+metadata_expire=-1
+gpgcheck=0
+cost=500
+
+
+dnf repolist cleanall
+dnf update
+repo id                                                      repo name
+AppStream                                                    Red Hat Enterprise Linux 8.6.0
+BaseOs                                                       Red Hat Enterprise Linux 8.6.0
+
+
+3 Modify your active network interface configuration to follow the following specifications statically:
+
+IPV4 – 192.168.129.113/24
+GW – 192.168.129.1
+DNS – 8.8.8.8
+nmcli connection modify enp0s3 ipv4.method manual
+nmcli connection up enp0s3 
+ nmcli con show enp0s3 
+ 
+ 4 Add the following secondary IPV4 address statically to your current running interface. Do this in a way that doesn’t compromise your existing settings:
+
+IPV4 – 10.0.0.5/24
+nmcli con modify enp0s3 +ipv4.addresses 10.0.0.5/24
+[root@srv2 yum.repos.d]# nmcli con up enp0s3 
+
+
+ 5   Add the following secondary IPV6 address statically to your current running interface. Do this in a way that doesn’t compromise your existing settings:
+
+IPV6 – fd01::100/64
+nmcli con mod enp0s3 +ipv6.addresses fd01::100/64
+[root@srv2 yum.repos.d]# nmcli con up enp0s3
+
+
+6 Set the system time to “America/New_York” timezone.
+
+timedatectl set-timezone America/New_York
+
+
+7 Ensure NTP sync is configured.
+
+systemctl status chronyd
+dnf install chrony
+systemctl enable chronyd --now
+chronyc makestep
+timedatectl set-ntp true
+
+8 Create a new 2GiB volume group named “myvg”.
+tem que adicionar disco na VM antes
+
+lsblk
+cfdisk /dev/sdb6
+new dos w 
+new 2GB extended lvm w
+vgcreate myvg /dev/sdb6
+
+
+9 Create a 500MiB logical volume named “mylv” inside the “myvg” volume group.
+lvcreate -n mylv --size 500M myvg
+lvs
+
+10 The “mylv” logical volume should be formatted with the ext4 filesystem and mount persistently on the /mylv directory.
+
+lsblk
+mkfs.ext4 /dev/myvg/mylv 
+blkid - -----    UUID="42d93ad1-6f3f-44f8-a8a5-9257d89160fe"
+ mkdir /mylv
+ vi /etc/fstab
+  mount -a
+[root@srv2 ~]# systemctl daemon-reload 
+
+
+11 - Extend the ext4 filesystem on “mylv” by 500M.
+lvextend -r -L +500M /dev/myvg/mylv
+df -hT /dev/myvg/mylv 
+Filesystem            Type  Size  Used Avail Use% Mounted on
+/dev/mapper/myvg-mylv ext4  961M  2.5M  910M   1% /mylv
+
+ 
+ 
+ 
+12 Use the appropriate utility to create a 6T thin provisioned volume "thin_pool".
+é para usar essa bosta de vdo por causa do tamanho
+
+# der problema com reboot e modo de emergência - arrumar o fstab
+mount -o remount,rw /
+
+#thinpool = vdo espaço maior / criar vdo maior que o espaço ex 6.2T / vgcreate / lvcreate com 6T com --thinpool
+
+lsblk
+systemctl status vdo
+vdo
+vdo create --name thin_pool --vdoLogicalSize=6.2T --device /dev/sdb7 --force
+vgcreate thin_pool /dev/mapper/thin_pool
+lvcreate thin_pool --size=6T --thinpool thin_pool
+
+
+13  Using "thin_pool" create a thin volume "thin_vol1" with a size of 1T.
+Create a thin LV in a thin pool.
+lvcreate -V|--virtualsize Size[m|UNIT] --thinpool LV VG
+           [ --type thin ] (implied)
+           [ -T|--thin ]
+           [ COMMON_OPTIONS ]
+lvcreate -V 1T --thin -n thin_vol1 thin_pool/thin_pool
+
+
+14 Create xfs file system on "thin_vol1", then mount it on /thin_vol1 directory persistently.
+mkdir /thin_vol1
+### essa merda some. tomar no cu de coisa mal acabada redhat.  listar pelo mapeamento do kernel
+ls -la /dev/mapper/*
+
+mkfs.xfs -K /dev/mapper/thinpool-thinpoollv
+
+man vdo - 
+AUTOMATIC MOUNTING
+/dev/mapper/vdo0 /vdo xfs defaults,x-systemd.requires=vdo.service 0 0  -- adaptar
+
+/dev/mapper/thinpool-thinpoollv /thin_vol1 xfs defaults,x-systemd.requires=vdo.service 0 0
+
+[root@srv2 mylv]# df -hT
+Filesystem                      Type      Size  Used Avail Use% Mounted on
+devtmpfs                        devtmpfs  1.4G     0  1.4G   0% /dev
+tmpfs                           tmpfs     1.4G   84K  1.4G   1% /dev/shm
+tmpfs                           tmpfs     1.4G  628K  1.4G   1% /run
+tmpfs                           tmpfs     1.4G     0  1.4G   0% /sys/fs/cgroup
+/dev/mapper/rhel-root           xfs        70G   15G   56G  21% /
+/dev/mapper/rhel-home           ext4       46G  206M   43G   1% /home
+/dev/sda1                       xfs      1014M  213M  802M  21% /boot
+tmpfs                           tmpfs     280M     0  280M   0% /run/user/0
+tmpfs                           tmpfs     280M  460K  280M   1% /run/user/1002
+/dev/mapper/myvg-mylv           ext4      961M  2.5M  910M   1% /mylv
+/dev/mapper/thin_pool-thin_vol1 xfs       1.0T  7.2G 1017G   1% /thin_vol1    <---------------------
+[root@srv2 mylv]# 
+
+
+
+15 Configure a basic web server that displays “Welcome to the webserver!” once connected to it. Ensure the firewall allows the http/https services.
+dnf install httpd
+systemctl status httpd
+ls -la /var/www/html/
+echo "Welcome to the webserver" > /var/www/html/index.html
+ firewall-cmd --list-services
+  firewall-cmd --add-service=http --permanent
+  systemctl restart httpd
+ curl localhost
+Welcome to the webserver
+
+
+16  Find all files that are larger than 3MB in the /etc directory and copy them to /find/3mfiles.
+
+
+  
+
+17 Boot messages should be present (not silenced).
+
+
+18 The script, script.sh, consists of the following lines:
+#!/bin/bash
+
+echo $2 $1
+
+Which output will appear if the command, ./script.sh test1 test2, is entered?
+
+
+19 All new users should have a file name “Congrats” in their home folder after account creation.
+
+
+20 All user passwords should expire after 90 days and be at least 8 characters in length.
+
+
+Question 21:
+Create users amr, biko, carlos, and david, then do the following:
+
+a. amr and biko should be part of the “admins” group as a secondary group. If the group doesn’t already exist, create it.
+
+b. carlos and david should be part of the “developers” group as a secondary group. If the group doesn’t already exist, create it.
+
+
+
+
+Question 22: Incorreto
+Only the owner and the members of the owner group should have access to the “/admins” directory.
+
+
+
+Question 23: Incorreto
+Make biko the owner of this directory, and make the admins group the group owner of the “/admins” directory.
+
+
+Question 24: Incorreto
+Only members of the developers group should have access to the “/developers” directory. Make carlos the owner of this directory. Make the developers group the group owner of the “/developers” directory.
+
+
+Question 25: Incorreto
+/developers and /admins directories new files should be owned by the group owner and only the file creator should have the permissions to delete their own files.
+
+
+
+Question 26: Incorreto
+Create a cron job that writes “Get Ready!” to /var/log/messages at 12pm only on weekdays.
+
+
+
+
+Question 27: Correto
+Create a compressed archive file /root/local.tgz for /usr/local.
+
+
+
+
+
+Question 28: Correto
+Create a new 200MB swap partition which takes effect automatically at boot start.
+
+
+
+
+Question 29: Correto
+Setup SSH Passwordless root Login in rhcsa8.prac.two.
+
+
+
+
+Question 30: Correto
+Set the limit for the number of SSH login attempts to two.
+
+
+
+
+Question 31: Incorreto
+Install container-tools.
+
+dnf module install container-tools
+
+Question 32: Correto
+Use podman to search for the official Redis container.
+podman search redis
+
+
+Question 33: Correto
+Inspect the Redis image using skopeo.
+
+skopeo inspect docker://srv1.example.com:5000/redis
+
+
+Question 34: Correto
+Use podman to pull the Redis image.
+
+
+
+
+Question 35: Correto
+Add the tag "myredis" to the "docker.io/library/redis" image.
+
+podman tag myredis srv1.example.com:5000/redis
+podman push srv1.example.com:5000/myredis
+
+
+
+
+Question 36: Correto
+Set SELinux to “permissive” mode.
+
+setenforce 0
+vi /etc/selinux/config 
+
+
+
+
+Question 37: Correto
+Set SELinux Boolean value of container_manage_cgroup to on and make sure it will be persistent across reboots.
+usa o tab e help
+
+setsebool -P container_manage_cgroup 1
+
+
+
+Question 38: Correto
+Run the Redis container using the tagged image in detached mode with name redis and on port 6379:6379
+
+
+podman run -d --name redis -p 6379:6379 srv1.example.com:5000/myredis
+podman ps
+
+
+Question 39: Incorreto
+Use systemd to control the startup of the Redis podman container.
+mkdir -p ~/container
+cd  ~/container
+
+ podman generate systemd  --name redis --files --new
+ cp container-redis.service /etc/systemd/system/
+ systemctl enable container-redis.service --now
+ systemctl status container-redis.service
+ podman ps
+
+
+Question 40: Correto
+Remove myredis container.
+
+podman stop myredis
+podman rm -af
+
+
+Question 41: Correto
+The script, script.sh, consists of the following lines:
+
+#!/bin/bash
+echo $2 $1
+
+Which output will appear if the command, ./script.sh test1 test2, is entered?
+
+ cat << EOF>script.sh
+> #!/bin/bash
+> echo $2 $1
+> EOF
+[root@srv2 ~]# chmod +x script.sh 
+[root@srv2 ~]# ./script.sh test1 test2
+
+[root@srv2 ~]# 
+[root@srv2 ~]# vi script.sh 
+[root@srv2 ~]# ./script.sh test1 test2
+
+
+Question 42: Correto
+Which of the following commands prints a list of usernames (first column) and their primary group (fourth column) from the //etc//passwd file (one slash only)?
+
+ cut -d: -f 1,4 /etc/passwd
+
+
+
+
+Question 43: Correto
+What command will generate a list of usernames from //etc//passwd (one slash only) along with their login shell?
+cut -d: -f 1,7 /etc/passwd
+
+
+
+
+Question 44: Incorreto
+When starting a program with the nice command without any additional parameters, which nice level is set for the resulting process?
+
+0
+   PID USER      PR  NI    VIRT    RES    SHR S  %CPU  %MEM     TIME+ COMMAND                                                                
+      1 root      20   0  177888  16504   9188 S   0.0   0.6   0:01.71 systemd                                                                
+      2 root      20   0       0      0      0 S   0.0   0.0   0:00.00 kthreadd       
+
+
+Question 45: Correto
+Which command chain will count the number of regular files with the name of sample.txt within /home?
+
+wc -l
+
+
+Question 46: Correto
+What is the output of the following command?
+
+echo "Hello World" | tr -d aieou
+
+Hll Wrld
+
+
+
+Question 47: Correto
+Which character, added to the end of command, runs that command in the background as a child process of the current shell?
+
+&
+
+
+Question 48: Correto
+What output will the following command produce?
+
+seq 1 5 20
+
+[root@srv2 ~]# seq 1 5 20
+1
+6
+11
+16
+
+
+
+Question 49: Correto
+Select the command used to Backup rhcsa8.prac.one MBR on “/dev/sda” to “/backup/mbr.img” with step of 512 bytes and copy only 1 block.
+
+
+dd if=/dev/sda of=/backup/mbr.img bs=512 count=1
+
+Question 50: Correto
+Which of the following characters can be combined with a separator string to read from the current input source until the separator string, which is on a separate line and without any trailing spaces, is reached?
+
+<<  - apend sem apagar. enrolão do caralho
+
+
+Question 51:
+Configure automount to automatically mount the users' tom and sam home directories as required:
+
+rhcsa.server.com uses NFS for the home directory shared with your system. This file system has a home directory preset for the users tom and sam.
+
+autofs - montar a shre do home no srv para esses users
+
+The home directories of tom and sam are:
+
+rhcsa.server.com/home/tom1
+rhcsa.server.com/home/sam1
+
+
+#### criar esses viados no srv1 ########
+The users uid:
+The user tom1 uid is 1010
+The user sam1 uid is 1020
+
+adduser -u 1010 tom1
+adduser -u 1020 sam1
+ ls -la /home
+ # se nao tiver
+ srv 1 com nfs
+dnf install nfs-utils
+ 
+ vi /etc/exports
+ /home/sam1 192.168.129.0/24(rw)
+/home/tom1 192.168.129.0/24(rw)
+
+systemctl restart nfs-server.service
+exportfs
+
+su - tom1
+echo "zecu" > /home/tom1/zecu
+
+
+The users' tom and sam home directories should automatically mount to the local /home directory. Read and write permissions must be available to the users.
+
+##### no srv2
+
+showmount -e 192.168.129.115    ?? se não tiver nfs tem que instalar
+
+yum install autofs –y
+dnf install nfs-utils
+systemctl enable --now autofs
+
+useradd –M –u 1010 tom1 #### -M adiciona e não cria a pasta do user no /home
+useradd –M –u 1020 sam1
+
+vim /etc/auto.master 
+/home /etc/auto.home    ## ele vai montar no home e o autofs vai usar & pra listar os outros users
+
+
+vim /etc/auto.home
+* -rw,sync -fstype-auto 192.168.129.115:/home/&
+
+
+ systemctl restart autofs
+
+[root@srv2 home]# su - tom1
+[tom1@srv2 ~]$ ll
+total 0
+-rw-r--r--. 1 tom1 tom1 0 Jan 31 11:14 zecu
+[tom1@srv2 ~]$ 
+
+
+
+
+Question 52: Correto
+Setup SSH Passwordless root Login in rhcsa8.prac.two.
+
+ssh-copy-id
+
+Question 53: Incorreto
+Set SELinux to “permissive” mode.
+
+repetido
